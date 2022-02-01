@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+import configparser, gallery_dl, glob, markdown, os, pyperclip, re, requests, shlex, shutil, subprocess, threading, time, trafilatura, webbrowser, urwid, youtube_dl
+from duckduckgo_search import ddg
+from io import BytesIO
+from libsixel import *
+from PIL import Image
+from urllib.request import urlopen, urlparse, Request
+from xdg.BaseDirectory import *
+
+# Configuration
+os.makedirs(os.path.join(xdg_config_home, "ddgit"), exist_ok=True)
+config_defaults_ddgit = {
+        'clear_search_on_focus': 'false',
+        'region': 'us-en',
+        'max_results': '25',
+        'exclude': 'androidbiits.com,linkedin.com,nolo.com,pinterest.*,simplelifestrategies.com,shopify.com,softlay.net,softonic.com', 
+        'termexec': 'xterm -e',
+        'pager': 'less -r',
+        'sixels': 'false',
+        'mediaplayer': 'mpv;noterm',
+        'docviewer': 'antiword -f -w 80;pager',
+        'imageviewer': 'fim -R',
+        'pdfviewer': 'zathura;noterm',
+        'tabviewer': 'visidata'
+        }
+
+config_defaults_pallette = {
+        'border': 'dark blue,default',
+        'searchbox': 'black,white',
+        'searchbox_focus': 'white,dark blue',
+        'reveal focus': 'white,dark blue,standout',
+        'url': 'brown,default',
+        'title': 'light green,default',
+        'desc': 'default,default',
+        'meta': 'dark cyan,default',
+        'matches': 'dark magenta,default',
+        'item_frame': 'black,black',
+        'item_frame_focus': 'light cyan,default'
+        }
+
+config = configparser.ConfigParser()
+
+def config_create():
+    config.add_section('ddgit')
+    config.add_section('pallette')
+
+    for i in config_defaults_ddgit:
+        config['ddgit'][i] = config_defaults_ddgit[i]
+
+    for i in config_defaults_pallette:
+        config['pallette'][i] = config_defaults_pallette[i]
+
+    with open(os.path.join(xdg_config_home, 'ddgit/config'), 'w') as configfile:
+        config.write(configfile)
+
+if not os.path.exists(os.path.join(xdg_config_home, 'ddgit/config')):
+    config_create()
+
+config.read(os.path.join(xdg_config_home, 'ddgit/config'))
+
+# Check for missing keys
+for i in config_defaults_ddgit:
+    if not config.has_option('ddgit', i):
+        config['ddgit'][i] = config_defaults_ddgit[i]
+for i in config_defaults_pallette:
+    if not config.has_option('pallette', i):
+        config['pallette'][i] = config_defaults_pallette[i]
+with open(os.path.join(xdg_config_home, 'ddgit/config'), 'w') as configfile:
+    config.write(configfile)
+palette = [
+        (['border']+config['pallette']['border'].split(',')),
+        (['searchbox']+config['pallette']['searchbox'].split(',')),
+        (['searchbox_focus']+config['pallette']['searchbox_focus'].split(',')),
+        (['reveal focus']+config['pallette']['reveal focus'].split(',')),
+        (['url']+config['pallette']['url'].split(',')),
+        (['title']+config['pallette']['title'].split(',')),
+        (['desc']+config['pallette']['desc'].split(',')),
+        (['meta']+config['pallette']['meta'].split(',')),
+        (['matches']+config['pallette']['matches'].split(',')),
+        (['item_frame']+config['pallette']['item_frame'].split(',')),
+        (['item_frame_focus']+config['pallette']['item_frame_focus'].split(','))
+        ]
+clear_search_on_focus = config.getboolean('ddgit', 'clear_search_on_focus')
+exclude = " -site:"+config['ddgit']['exclude'].replace(',', ' -site:')
+termexec = config['ddgit']['termexec']
+pager = config['ddgit']['pager']
+sixels = config.getboolean('ddgit', 'sixels')
+mediaplayer = config['ddgit']['mediaplayer']
+docviewer = config['ddgit']['docviewer']
+imageviewer = config['ddgit']['imageviewer']
+pdfviewer = config['ddgit']['pdfviewer']
+tabviewer = config['ddgit']['tabviewer']
+
+def markdown2ansi(text):
+    text = markdown.markdown(text).replace('<p>', '').replace('</p>', '')
+
+    replacements = [('(<strong>)', r'\033[1m'), ('(</strong>)', r'\033[0m'), ('(<em>)', r'\033[3m'), 
+            ('(</em>)', r'\033[0m'), ('(<ins>)', r'\033[4m'), ('(</ins>)', r'\033[0m'), ('(<del>)', 
+            r'\033[9m'), ('(</del>)', r'\033[0m')]
+
+    for htag, eseq in replacements:
+        text = re.sub(htag, eseq, text, flags=re.MULTILINE)
+
+    return text
+
+def imgurls2sixels(text):
+    def imgurl2sixel(url):
+        response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+        fname = '/tmp/ddgit/'+url.split("/")[-1]
+        with open(fname, 'wb') as f:
+            f.write(response.content)
+
+        i = Image.open(fname)
+        i = i.convert('RGBA')
+
+        sixel = BytesIO()
+        dither = sixel_dither_new(256)
+        sixel_dither_initialize(dither, i.tobytes(), i.width, i.height, SIXEL_PIXELFORMAT_RGBA8888)
+        sixel_encode(i.tobytes(), i.width, i.height, 1, dither,
+                sixel_output_new(lambda imgdata, sixel: sixel.write(imgdata), sixel))
+
+        return (sixel.getvalue().decode('ascii'))
+
+    text = re.sub('^(http|https://.*?\.jpg|png|webp)$', lambda x: imgurl2sixel(x.group()), text, flags=re.MULTILINE)
+    return text
+
+def download_and_open(url, viewer):
+    response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+    fname = '/tmp/ddgit/'+response.headers.get("Content-Disposition").split("filename=")[1] if "Content-Disposition" in response.headers.keys() else '/tmp/ddgit/'+url.split("/")[-1]
+    with open(fname, 'wb') as f:
+        f.write(response.content)
+    viewer, *options = viewer.split(';')
+
+    if 'pager' in options:
+        output = subprocess.run(shlex.split(viewer)+[f.name], stdout=subprocess.PIPE)
+        with open(fname+'.txt', 'wb') as f:
+            f.write(output.stdout)
+        viewer = pager
+
+    subprocess.Popen(shlex.split(viewer if 'noterm' in options else '%s %s' % 
+        (termexec, viewer))+[f.name], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
+class SearchBox(urwid.Edit):
+    def selectable(self):
+        return True
+
+    def keypress(self, size, key):
+        if key == 'enter':
+            PerformSearch(searchbox.base_widget.text)
+            if content:
+                frame.focus_position = 'body'
+        elif key == 'tab':
+            if content:
+                frame.focus_position = 'body'
+        else:
+            super().keypress(size, key)
+        return key
+
+class ListBoxItem(urwid.Text):
+    def selectable(self):
+        return True
+
+    def keypress(self, size, key):
+        url = listbox.get_focus()[0].base_widget.text.splitlines()[1]
+
+        if key == 'enter':
+            webbrowser.open(url, new=2, autoraise=False)
+        elif key in ('o', 'O'):
+            os.makedirs(os.path.join(xdg_config_home, "/tmp/ddgit"), exist_ok=True)
+            # Image galleries
+            if gallery_dl.extractor.find(url):
+                def view_images():
+                    try:
+                        dir_download = '/tmp/ddgit/%f' % time.time()
+                        os.makedirs(dir_download, exist_ok=True)
+                        gallery_dl.config.load()
+                        gallery_dl.config.set(('extractor',), "directory", "")
+                        gallery_dl.config.set(('extractor',), "base-directory", dir_download)
+                        gallery_dl.config.set(('output',), 'mode', 'null')
+                        gallery_dl.job.DownloadJob(url).run()
+                        viewer, *options = imageviewer.split(';')
+                        subprocess.Popen(shlex.split(viewer if 'noterm' in options else '%s %s' % 
+                            (termexec, viewer))+[dir_download], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                        return key
+                    except:
+                        pass
+
+                thread = threading.Thread(target=view_images)
+                thread.start()
+
+            # Youtube-like videos
+            try:
+                for e in youtube_dl.extractor.gen_extractors():
+                    if e.suitable(url) and e.IE_NAME != 'generic':
+                        viewer, *options = mediaplayer.split(';')
+                        subprocess.Popen(shlex.split(viewer if 'noterm' in options else '%s %s' % 
+                            (termexec, viewer))+[url], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                        return key
+            except:
+                pass
+
+            # Everything else
+            response = requests.head(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
+            if response.headers['content-type'].split('/')[0] == 'video':
+                def view_video():
+                    subprocess.Popen([mediaplayer, url], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                thread = threading.Thread(target=view_video)
+                thread.start()
+            elif response.headers['content-type'] == 'application/msword' or url.split('/')[-1].split('.')[-1] == 'doc':
+                thread = threading.Thread(target=download_and_open(url, docviewer))
+                thread.start()
+            elif response.headers['content-type'] in ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application', 'vnd.sqlite3,application/x-sqlite3', 'text/csv', 'application/x-hdf5'] or url.split('/')[-1].split('.')[-1] in ['csv', 'db', 'db-shm', 'hdf5', 'sqlite', 'sqlite-shm', 'sqlite-wal', 'tsv', 'xls', 'xlsx']:
+                thread = threading.Thread(target=download_and_open(url, tabviewer))
+                thread.start()
+            elif response.headers['content-type'] == 'application/pdf' or url.split('/')[-1].split('.')[-1] == 'pdf':
+                thread = threading.Thread(target=download_and_open(url, pdfviewer))
+                thread.start()
+            else:
+                def view_html():
+                    downloaded = trafilatura.fetch_url(url)
+                    if downloaded:
+                        fname = '/tmp/ddgit/%f.txt' % time.time()
+                        result = trafilatura.extract(downloaded, include_formatting=True, include_images=True)
+                        if result:
+                            result = markdown2ansi(result)
+                            if sixels:
+                                result = imgurls2sixels(result)
+                            with open(fname, 'wb') as f:
+                                f.write(result.encode('utf-8'))
+                            subprocess.call(shlex.split('%s %s %s' % (termexec, pager, f.name)))
+                thread = threading.Thread(target=view_html)
+                thread.start()
+        elif key in ('y', 'Y'):
+            pyperclip.copy(listbox.get_focus()[0].base_widget.text.splitlines()[1])
+        elif key == 'tab':
+            frame.focus_position = 'header'
+            if clear_search_on_focus:
+                searchbox.base_widget.edit_text = ''
+        return key
+
+def PerformSearch(term):
+    results = []
+
+    repl = ddg(term+exclude, region=config['ddgit']['region'], safesearch='Off', time=None, max_results=int(config['ddgit']['max_results']))
+
+    for i in repl:
+        results.append(urwid.AttrMap(urwid.LineBox(ListBoxItem([("title", i['title']+'\n'), ("url", i['href']+'\n'), ("desc", i['body'])]), tlcorner='┏', tline='━', lline='┃', trcorner='┓', blcorner='┗', rline='┃', bline='━', brcorner='┛'), 'item_frame', focus_map='item_frame_focus'))
+
+    content[:] = [urwid.AttrMap(w, None, 'default') for w in results]
+    if results:
+        listbox.focus_position = 0
+    
+def exit_on_cq(input):
+    if input in ('ctrl q', 'ctrl Q'):
+        # Clean up our mess
+        for f in glob.glob('/tmp/ddgit/*'):
+            if os.path.isdir(f):
+                shutil.rmtree(f)
+            else:
+                os.remove(f)
+        raise urwid.ExitMainLoop()
+
+searchicon = urwid.Text("\U0001F50D")
+searchbox = urwid.AttrMap(SearchBox(""), "searchbox", focus_map="searchbox_focus")
+content = urwid.SimpleListWalker([])
+listbox = urwid.ListBox(content)
+
+frame = urwid.Frame(listbox, urwid.Pile([urwid.Columns([(3, searchicon), searchbox]), urwid.AttrMap(urwid.Divider('─'), "border")]), focus_part="header")
+
+loop = urwid.MainLoop(urwid.AttrMap(urwid.LineBox(urwid.AttrMap(frame, "default")), "border"), palette, unhandled_input=exit_on_cq)
+loop.run()
+
