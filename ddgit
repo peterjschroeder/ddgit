@@ -240,16 +240,22 @@ class ListBoxItem(urwid.Text):
 
 def PerformSearch(term):
     results = []
+    content[:] = []
 
-    repl = ddg(term+exclude, region=config['ddgit']['region'], safesearch='Off', time=None, max_results=int(config['ddgit']['max_results']))
+    # Wrap it in a try/except due to lack of error checking from duckduckgo_search
+    try:
+        repl = ddg(term+exclude, region=config['ddgit']['region'], safesearch='Off', time=None, max_results=int(config['ddgit']['max_results']))
 
-    for i in repl:
-        results.append(urwid.AttrMap(urwid.LineBox(ListBoxItem([("title", i['title']+'\n'), ("url", i['href']+'\n'), ("desc", i['body'])]), tlcorner='┏', tline='━', lline='┃', trcorner='┓', blcorner='┗', rline='┃', bline='━', brcorner='┛'), 'item_frame', focus_map='item_frame_focus'))
+        for i in repl:
+            results.append(urwid.AttrMap(urwid.LineBox(ListBoxItem([("title", i['title']+'\n'), ("url", i['href']+'\n'), ("desc", i['body'])]), tlcorner='┏', tline='━', lline='┃', trcorner='┓', blcorner='┗', rline='┃', bline='━', brcorner='┛'), 'item_frame', focus_map='item_frame_focus'))
 
-    content[:] = [urwid.AttrMap(w, None, 'default') for w in results]
-    if results:
-        listbox.focus_position = 0
-    
+        content[:] = [urwid.AttrMap(w, None, 'default') for w in results]
+
+        if results:
+            listbox.focus_position = 0
+    except:
+        pass
+
 def exit_on_cq(input):
     if input in ('ctrl q', 'ctrl Q'):
         # Clean up our mess
