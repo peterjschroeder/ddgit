@@ -1,5 +1,5 @@
 # ddgit
-pip install git+https://github.com/peterjschroeder/ddgoit.git \
+pip install git+https://github.com/peterjschroeder/ddgit.git \
 **Requirements**\
 xclip or xsel\
 Viewers (Defaults are antiword, fim, mpv, xterm, visidata, zathura)\
