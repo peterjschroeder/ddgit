@@ -10,6 +10,6 @@ setup(
         author_email='peterjschroeder@gmail.com', 
         url='https://github.com/peterjschroeder/ddgit',
         scripts=['ddgit'],
-        install_requires=['duckduckgo_search', 'gallery-dl @ git+https://github.com/mikf/gallery-dl.git', 'pyperclip', 'urwid', 'pyxdg', 'youtube-dl']
+        install_requires=['duckduckgo_search', 'gallery-dl @ git+https://github.com/mikf/gallery-dl.git', 'markdown', 'pyperclip', 'trafilatura', 'urwid', 'pyxdg', 'youtube-dl']
 )
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-import configparser, gallery_dl, glob, markdown, os, pyperclip, re, requests, shlex, shutil, subprocess, threading, time, trafilatura, webbrowser, urwid, youtube_dl
+import configparser, gallery_dl, glob, markdown, os, pyperclip, re, requests, shlex, shutil, subprocess, threading, time, trafilatura, tuicolor, webbrowser, urwid, youtube_dl
 from duckduckgo_search import ddg
 from io import BytesIO
 from libsixel import *
 from PIL import Image
+from trafilatura.settings import use_config
 from urllib.request import urlopen, urlparse, Request
 from xdg.BaseDirectory import *
 
@@ -24,31 +25,13 @@ config_defaults_ddgit = {
         'tabviewer': 'visidata'
         }
 
-config_defaults_pallette = {
-        'border': 'dark blue,default',
-        'searchbox': 'black,white',
-        'searchbox_focus': 'white,dark blue',
-        'reveal focus': 'white,dark blue,standout',
-        'url': 'brown,default',
-        'title': 'light green,default',
-        'desc': 'default,default',
-        'meta': 'dark cyan,default',
-        'matches': 'dark magenta,default',
-        'item_frame': 'black,black',
-        'item_frame_focus': 'light cyan,default'
-        }
-
 config = configparser.ConfigParser()
 
 def config_create():
     config.add_section('ddgit')
-    config.add_section('pallette')
 
     for i in config_defaults_ddgit:
         config['ddgit'][i] = config_defaults_ddgit[i]
-
-    for i in config_defaults_pallette:
-        config['pallette'][i] = config_defaults_pallette[i]
 
     with open(os.path.join(xdg_config_home, 'ddgit/config'), 'w') as configfile:
         config.write(configfile)
@@ -62,24 +45,8 @@ config.read(os.path.join(xdg_config_home, 'ddgit/config'))
 for i in config_defaults_ddgit:
     if not config.has_option('ddgit', i):
         config['ddgit'][i] = config_defaults_ddgit[i]
-for i in config_defaults_pallette:
-    if not config.has_option('pallette', i):
-        config['pallette'][i] = config_defaults_pallette[i]
 with open(os.path.join(xdg_config_home, 'ddgit/config'), 'w') as configfile:
     config.write(configfile)
-palette = [
-        (['border']+config['pallette']['border'].split(',')),
-        (['searchbox']+config['pallette']['searchbox'].split(',')),
-        (['searchbox_focus']+config['pallette']['searchbox_focus'].split(',')),
-        (['reveal focus']+config['pallette']['reveal focus'].split(',')),
-        (['url']+config['pallette']['url'].split(',')),
-        (['title']+config['pallette']['title'].split(',')),
-        (['desc']+config['pallette']['desc'].split(',')),
-        (['meta']+config['pallette']['meta'].split(',')),
-        (['matches']+config['pallette']['matches'].split(',')),
-        (['item_frame']+config['pallette']['item_frame'].split(',')),
-        (['item_frame_focus']+config['pallette']['item_frame_focus'].split(','))
-        ]
 clear_search_on_focus = config.getboolean('ddgit', 'clear_search_on_focus')
 exclude = " -site:"+config['ddgit']['exclude'].replace(',', ' -site:')
 termexec = config['ddgit']['termexec']
@@ -90,6 +57,10 @@ docviewer = config['ddgit']['docviewer']
 imageviewer = config['ddgit']['imageviewer']
 pdfviewer = config['ddgit']['pdfviewer']
 tabviewer = config['ddgit']['tabviewer']
+
+# trafilatura fix
+tconfig = use_config()
+tconfig.set("DEFAULT", "EXTRACTION_TIMEOUT", "0")
 
 def markdown2ansi(text):
     text = markdown.markdown(text).replace('<p>', '').replace('</p>', '')
@@ -220,7 +191,7 @@ class ListBoxItem(urwid.Text):
                     downloaded = trafilatura.fetch_url(url)
                     if downloaded:
                         fname = '/tmp/ddgit/%f.txt' % time.time()
-                        result = trafilatura.extract(downloaded, include_formatting=True, include_images=True)
+                        result = trafilatura.extract(downloaded, include_formatting=True, include_tables=True, include_images=True, config=tconfig)
                         if result:
                             result = markdown2ansi(result)
                             if sixels:
@@ -247,7 +218,7 @@ def PerformSearch(term):
         repl = ddg(term+exclude, region=config['ddgit']['region'], safesearch='Off', time=None, max_results=int(config['ddgit']['max_results']))
 
         for i in repl:
-            results.append(urwid.AttrMap(urwid.LineBox(ListBoxItem([("title", i['title']+'\n'), ("url", i['href']+'\n'), ("desc", i['body'])]), tlcorner='┏', tline='━', lline='┃', trcorner='┓', blcorner='┗', rline='┃', bline='━', brcorner='┛'), 'item_frame', focus_map='item_frame_focus'))
+            results.append(urwid.AttrMap(urwid.LineBox(ListBoxItem([("title", i['title']+'\n'), ("url", i['href']+'\n'), ("desc", i['body'])]), tlcorner='┏', tline='━', lline='┃', trcorner='┓', blcorner='┗', rline='┃', bline='━', brcorner='┛'), 'default', focus_map='borders'))
 
         content[:] = [urwid.AttrMap(w, None, 'default') for w in results]
 
@@ -267,12 +238,12 @@ def exit_on_cq(input):
         raise urwid.ExitMainLoop()
 
 searchicon = urwid.Text("\U0001F50D")
-searchbox = urwid.AttrMap(SearchBox(""), "searchbox", focus_map="searchbox_focus")
+searchbox = urwid.AttrMap(SearchBox(""), "searchbox", focus_map="selected_focus_field")
 content = urwid.SimpleListWalker([])
 listbox = urwid.ListBox(content)
 
-frame = urwid.Frame(listbox, urwid.Pile([urwid.Columns([(3, searchicon), searchbox]), urwid.AttrMap(urwid.Divider('─'), "border")]), focus_part="header")
+frame = urwid.Frame(listbox, urwid.Pile([urwid.Columns([(3, searchicon), searchbox]), urwid.AttrMap(urwid.Divider('─'), "borders")]), focus_part="header")
 
-loop = urwid.MainLoop(urwid.AttrMap(urwid.LineBox(urwid.AttrMap(frame, "default")), "border"), palette, unhandled_input=exit_on_cq)
+loop = urwid.MainLoop(urwid.AttrMap(urwid.LineBox(urwid.AttrMap(frame, "default")), "borders"), tuicolor.config_load('urwid'), unhandled_input=exit_on_cq)
 loop.run()
 
