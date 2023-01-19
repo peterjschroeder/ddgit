@@ -18,11 +18,7 @@ config_defaults_ddgit = {
         'termexec': 'xterm -e',
         'pager': 'less -r',
         'sixels': 'false',
-        'mediaplayer': 'mpv;noterm',
-        'docviewer': 'antiword -f -w 80;pager',
-        'imageviewer': 'fim -R',
-        'pdfviewer': 'zathura;noterm',
-        'tabviewer': 'visidata'
+        'mediaplayer': 'mpv',
         }
 
 config = configparser.ConfigParser()
@@ -53,10 +49,6 @@ termexec = config['ddgit']['termexec']
 pager = config['ddgit']['pager']
 sixels = config.getboolean('ddgit', 'sixels')
 mediaplayer = config['ddgit']['mediaplayer']
-docviewer = config['ddgit']['docviewer']
-imageviewer = config['ddgit']['imageviewer']
-pdfviewer = config['ddgit']['pdfviewer']
-tabviewer = config['ddgit']['tabviewer']
 
 # trafilatura fix
 tconfig = use_config()
@@ -95,21 +87,13 @@ def imgurls2sixels(text):
     text = re.sub('^(http|https://.*?\.jpg|png|webp)$', lambda x: imgurl2sixel(x.group()), text, flags=re.MULTILINE)
     return text
 
-def download_and_open(url, viewer):
+def download_and_open(url):
     response = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
     fname = '/tmp/ddgit/'+response.headers.get("Content-Disposition").split("filename=")[1] if "Content-Disposition" in response.headers.keys() else '/tmp/ddgit/'+url.split("/")[-1]
     with open(fname, 'wb') as f:
         f.write(response.content)
-    viewer, *options = viewer.split(';')
 
-    if 'pager' in options:
-        output = subprocess.run(shlex.split(viewer)+[f.name], stdout=subprocess.PIPE)
-        with open(fname+'.txt', 'wb') as f:
-            f.write(output.stdout)
-        viewer = pager
-
-    subprocess.Popen(shlex.split(viewer if 'noterm' in options else '%s %s' % 
-        (termexec, viewer))+[f.name], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    subprocess.Popen(shlex.split('run-mailcap %s' % f.name), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
 class SearchBox(urwid.Edit):
     def selectable(self):
@@ -149,9 +133,8 @@ class ListBoxItem(urwid.Text):
                         gallery_dl.config.set(('extractor',), "base-directory", dir_download)
                         gallery_dl.config.set(('output',), 'mode', 'null')
                         gallery_dl.job.DownloadJob(url).run()
-                        viewer, *options = imageviewer.split(';')
-                        subprocess.Popen(shlex.split(viewer if 'noterm' in options else '%s %s' % 
-                            (termexec, viewer))+[dir_download], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                        subprocess.Popen(shlex.split('run-mailcap image/*:%s' % dir_download), stdin=subprocess.PIPE, 
+                                                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
                         return key
                     except:
                         pass
@@ -163,9 +146,8 @@ class ListBoxItem(urwid.Text):
             try:
                 for e in youtube_dl.extractor.gen_extractors():
                     if e.suitable(url) and e.IE_NAME != 'generic':
-                        viewer, *options = mediaplayer.split(';')
-                        subprocess.Popen(shlex.split(viewer if 'noterm' in options else '%s %s' % 
-                            (termexec, viewer))+[url], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                        subprocess.Popen(shlex.split('%s %s' % (mediaplayer, url)), stdin=subprocess.PIPE, 
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
                         return key
             except:
                 pass
@@ -177,14 +159,8 @@ class ListBoxItem(urwid.Text):
                     subprocess.Popen([mediaplayer, url], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
                 thread = threading.Thread(target=view_video)
                 thread.start()
-            elif response.headers['content-type'] == 'application/msword' or url.split('/')[-1].split('.')[-1] == 'doc':
-                thread = threading.Thread(target=download_and_open(url, docviewer))
-                thread.start()
-            elif response.headers['content-type'] in ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application', 'vnd.sqlite3,application/x-sqlite3', 'text/csv', 'application/x-hdf5'] or url.split('/')[-1].split('.')[-1] in ['csv', 'db', 'db-shm', 'hdf5', 'sqlite', 'sqlite-shm', 'sqlite-wal', 'tsv', 'xls', 'xlsx']:
-                thread = threading.Thread(target=download_and_open(url, tabviewer))
-                thread.start()
-            elif response.headers['content-type'] == 'application/pdf' or url.split('/')[-1].split('.')[-1] == 'pdf':
-                thread = threading.Thread(target=download_and_open(url, pdfviewer))
+            elif response.headers['content-type'] in ['application/msword', 'application/pdf', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application', 'vnd.sqlite3,application/x-sqlite3', 'text/csv', 'application/x-hdf5'] or url.split('/')[-1].split('.')[-1] in ['csv', 'db', 'db-shm', 'hdf5', 'sqlite', 'sqlite-shm', 'sqlite-wal', 'tsv', 'xls', 'xlsx']:
+                thread = threading.Thread(target=download_and_open(url))
                 thread.start()
             else:
                 def view_html():
