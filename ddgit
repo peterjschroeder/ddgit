@@ -18,7 +18,6 @@ config_defaults_ddgit = {
         'termexec': 'xterm -e',
         'pager': 'less -r',
         'sixels': 'false',
-        'mediaplayer': 'mpv',
         }
 
 config = configparser.ConfigParser()
@@ -48,7 +47,6 @@ exclude = " -site:"+config['ddgit']['exclude'].replace(',', ' -site:')
 termexec = config['ddgit']['termexec']
 pager = config['ddgit']['pager']
 sixels = config.getboolean('ddgit', 'sixels')
-mediaplayer = config['ddgit']['mediaplayer']
 
 # trafilatura fix
 tconfig = use_config()
@@ -146,7 +144,7 @@ class ListBoxItem(urwid.Text):
             try:
                 for e in youtube_dl.extractor.gen_extractors():
                     if e.suitable(url) and e.IE_NAME != 'generic':
-                        subprocess.Popen(shlex.split('%s %s' % (mediaplayer, url)), stdin=subprocess.PIPE, 
+                        subprocess.Popen(shlex.split('run-mailcap %s' % url), stdin=subprocess.PIPE, 
                                          stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
                         return key
             except:
@@ -156,7 +154,8 @@ class ListBoxItem(urwid.Text):
             response = requests.head(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
             if response.headers['content-type'].split('/')[0] == 'video':
                 def view_video():
-                    subprocess.Popen([mediaplayer, url], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+                    subprocess.Popen(shlex.split('run-mailcap %s' % url), stdin=subprocess.PIPE, 
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
                 thread = threading.Thread(target=view_video)
                 thread.start()
             elif response.headers['content-type'] in ['application/msword', 'application/pdf', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application', 'vnd.sqlite3,application/x-sqlite3', 'text/csv', 'application/x-hdf5'] or url.split('/')[-1].split('.')[-1] in ['csv', 'db', 'db-shm', 'hdf5', 'sqlite', 'sqlite-shm', 'sqlite-wal', 'tsv', 'xls', 'xlsx']:
